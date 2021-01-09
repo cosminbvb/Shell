@@ -8,16 +8,54 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-#include <readline/readline.h>
 #include <readline/history.h>
 
 #define min(a, b) (((a) < (b)) ? (a) : (b))
 
-int executing = 0;
-
 void clear()
 {
     printf("\e[1;1H\e[2J\n");
+}
+
+int read_command(char **command)
+{
+    int size = 0;
+    int realloc_size = 4;
+    *command = (char *)malloc(realloc_size * sizeof(char) + 1);
+    char c;
+    char *temp;
+
+    while (1)
+    {
+        if (scanf("%c", &((*command)[size++])) == 1)
+        {
+            if ((*command)[size - 1] == '\\')
+            {
+                scanf("%c", &(*command)[size - 1]);
+                fprintf(stderr, "> ");
+                scanf("%c", &(*command)[size - 1]);
+            }
+            if ((*command)[size - 1] == '\n')
+                break;
+
+            if (size == realloc_size)
+            {
+                realloc_size *= 2;
+                temp = (char *)realloc(*command, realloc_size * sizeof(char) + 1);
+                if (!temp)
+                {
+                    perror(NULL);
+                    return -1;
+                }
+                *command = temp;
+            }
+        }
+        else
+            break;
+    }
+
+    (*command)[--size] = '\0';
+    return size;
 }
 
 int split(char *command, char ***argv)
@@ -47,7 +85,7 @@ int hasPipe(char *command, char **pipe_split)
     //return values:
     //1 if pipe is found
     //0 otherwise
-    //the function also splits the command
+    //the functions also splits the command
 
     for (int i = 0; i < 2; i++)
     {
@@ -62,8 +100,6 @@ int hasPipe(char *command, char **pipe_split)
 
 int execute(char *command, int command_size)
 {
-    executing = 1; //mark start of execution
-
     char *copy = (char *)malloc(sizeof(char) * command_size + 1);
     strcpy(copy, command);
 
@@ -103,7 +139,7 @@ int execute(char *command, int command_size)
             if (execvp(argvPipe1[0], argvPipe1) == -1)
             {
                 puts("Command failed");
-                exit(EXIT_FAILURE); // kills process
+                exit(EXIT_FAILURE); // kill child
             }
         }
         else
@@ -122,7 +158,7 @@ int execute(char *command, int command_size)
                 if (execvp(argvPipe2[0], argvPipe2) == -1)
                 {
                     puts("Command failed");
-                    exit(EXIT_FAILURE); // kills process
+                    exit(EXIT_FAILURE); // kill child
                 }
             }
             else
@@ -171,7 +207,7 @@ int execute(char *command, int command_size)
             if (execvp(argv[0], argv) == -1)
             {
                 puts("Command failed");
-                exit(EXIT_FAILURE); // kills process
+                exit(EXIT_FAILURE); // kill child
             }
             //if execvp worked the process ends
         }
@@ -186,26 +222,8 @@ int execute(char *command, int command_size)
     return 0;
 }
 
-void signal_handler()
-{
-    //if a subprogram is executing (ping for example), the executing variable is set to 1
-    //and ctrl+c kills it
-    //if not, we need to discard the written line and give the user a fresh new one
-    if (!executing)
-    {
-        //when detecting ctrl+c, we need to discard the written line
-        rl_backward_kill_line(1, 0);
-        
-        //then we need to print the prompt again
-        puts("");
-        rl_redraw_prompt_last_line();
-    }
-}
-
 int main()
 {
-    signal(SIGINT, signal_handler); //signal_handler is called when ctrl+c is detected
-
     char *command = NULL;
     char cwd[4096];
 
@@ -213,44 +231,34 @@ int main()
 
     while (1)
     {
-        char *username = getenv("USER"); //get username
+        char *username = getenv("USER");
 
-        getcwd(cwd, sizeof(cwd)); //get current working dir
+        getcwd(cwd, sizeof(cwd));
 
-        //build the prompt:
-        char *prompt = (char *)malloc(sizeof(char) * (strlen(username) + strlen(cwd) + 4));
-        strcpy(prompt, username);
-        strcat(prompt, "~:");
-        strcat(prompt, cwd);
-        strcat(prompt, " \0");
-        
-        char *input = readline(prompt);
-        
-        free(prompt); //free the prompt when no longer needed
+        fprintf(stderr, "%s:~%s$ ", username, cwd);
 
-        if (strlen(input))
-        {
-            add_history(input);
-            command = (char *)malloc(strlen(input) * sizeof(char) + 1);
-            strcpy(command, input);
-            free(input);
-        }
-        else
-        {
-            free(input);
-            continue;
-        }
+        int size = read_command(&command);
+
+        if(!size) continue;
+
         if (strcmp(command, "exit") == 0)
         {
             free(command);
-            rl_clear_history();
             break;
         }
 
-        execute(command, strlen(command)); //send command for execution
-        executing = 0; //mark end of execution
+        int execution_result = execute(command, size);
 
         free(command);
     }
+
     return 0;
 }
+
+// OBS:
+/*
+why not free(argv[i])?
+"strtok only returns a pointer to a location inside the string you give it 
+as input-- it doesn't allocate new memory for you, so shouldn't need to call
+free on any of the pointers it gives you back in return."
+*/
