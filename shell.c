@@ -62,7 +62,7 @@ int hasPipe(char *command, char **pipe_split)
 
 int execute(char *command, int command_size)
 {
-    executing = 1;
+    executing = 1; //mark start of execution
 
     char *copy = (char *)malloc(sizeof(char) * command_size + 1);
     strcpy(copy, command);
@@ -247,12 +247,10 @@ int main()
             break;
         }
 
-        execute(command, strlen(command));
-        executing = 0;
+        execute(command, strlen(command)); //send command for execution
+        executing = 0; //mark end of execution
 
         free(command);
     }
-
     return 0;
 }
-
